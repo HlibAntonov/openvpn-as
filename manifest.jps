@@ -75,17 +75,12 @@ onBeforeInit: |
 ssl: true
 requiredFeatures: extip
 
-nodes:
-  image: jelastic/centosvps
-  cloudlets: 8
-  nodeGroup: cp
-  extip: true
+nodes: definedInOnBeforeInstall
 
 globals:
   username: openvpn
   password: ${fn.password(14)}
   workDir: /usr/local/openvpn_as
-  iptablesCustom: /etc/sysconfig/iptables-custom
   ovpn: ${globals.workDir}/scripts
   ovpnPortUDP: 1194
   ovpnPortTCP: 443
@@ -101,6 +96,7 @@ onBeforeInstall: |
 
   var client = new HttpClient(),
       getMethod,
+      nodeType,
       response,
       status,
       resp,
@@ -124,8 +120,9 @@ onBeforeInstall: |
   addon.baseUrl = jps.baseUrl;
   addon.logo = jps.logo;
   addon.homepage = jps.homepage;
-
-  return { result: 0, onInstall: jps.onInstall, nodes: jps.nodes };
+  
+  nodeType = (${fn.compareEngine(8.3.1)} >= 0) ? "almalinux-vps" : "centos-vps";
+  return { result: 0, onInstall: jps.onInstall, nodes: [{nodeType: nodeType, cloudlets: 8, nodeGroup: "cp", extip: true}] };
 
 onInstall:
   - install:
@@ -196,14 +193,31 @@ onInstall:
         actions:
           installVPN:
             - checkTunDevice
+            - if (/centos/.test("${nodes.cp.nodeType}")):
+              - setGlobals:
+                  iptables: iptables
+                  iptablesCustom: /etc/sysconfig/iptables-custom
+              - cmd [cp]: |-
+                  yum update iptables -y
+                  rpm -q --queryformat '%{VERSION}' centos-release | yum -y install https://as-repository.openvpn.net/as-repo-centos$(cat).rpm
+                  yum -y install centos-release-scl-rh
+                  yum -y install openvpn-as dnsmasq
+                  systemctl enable dnsmasq.service --now
+            - elif (/almalinux/.test("${nodes.cp.nodeType}")):
+              - setGlobals:
+                  iptables: nftables
+                  iptablesCustom: /etc/nftables/container-defined.nft
+              - cmd [cp]: |-
+                  rpm -q --queryformat '%{VERSION}' almalinux-release | cut -d. -f1 | dnf -y install https://as-repository.openvpn.net/as-repo-rhel$(cat).rpm
+                  dnf -y install openvpn-as dnsmasq python3-setuptools python3-idna
+                  systemctl enable dnsmasq.service --now
+            - else:
+                return:
+                  type: warning
+                  message: Unsupported operating system. Only AlmaLinux and CentOS are supported.
+                
             - cmd [cp]: |-
-                yum update iptables -y
-                rpm -q --queryformat '%{VERSION}' centos-release | yum -y install https://as-repository.openvpn.net/as-repo-centos$(cat).rpm
-                yum -y install centos-release-scl-rh
-                yum -y install openvpn-as dnsmasq
-                systemctl enable dnsmasq.service --now
                 cd ${globals.ovpn}
-
                 ./confdba --mod --key=iptables.vpn.disable.filter --value=True --prof=Default
                 ./confdba --mod --key=iptables.vpn.disable.nat --value=True --prof=Default
                 ./confdba --mod --key=iptables.vpn.disable.mangle --value=True --prof=Default
@@ -268,7 +282,7 @@ onInstall:
             - cleanIptablesCustom
             - script:
                 type: ejs
-                body: ${baseUrl}/scripts/iptables-custom.ejs
+                body: ${baseUrl}/scripts/${globals.iptables}-custom.ejs
                 params:
                   publicIP: ${this.ip}
                   ovpnPortUDP: ${globals.ovpnPortUDP}
@@ -276,10 +290,18 @@ onInstall:
                   webUiPort: ${globals.webUiPort}
                   privateNetworks: ${this.privateNetworks}
 
+            - if (/centos/.test("${nodes.cp.nodeType}")):
+              - cmd [cp]:
+                  echo '${response.body}' >> ${globals.iptablesCustom};
+                  iptables-restore < ${globals.iptablesCustom};
+                  service iptables save;
+            - if (/almalinux/.test("${nodes.cp.nodeType}")):
+              - cmd [cp]:
+                  echo '${response.body}' >> ${globals.iptablesCustom};
+                  nft -f ${globals.iptablesCustom}
             - cmd [cp]:
-                echo '${response.body}' >> ${globals.iptablesCustom};
-                iptables-restore < ${globals.iptablesCustom};
-                service iptables save;
+                jem firewall enable;
+                jem firewall start;
 
           resetPassword:
             - set: { password: "${fn.password(14)}" }
