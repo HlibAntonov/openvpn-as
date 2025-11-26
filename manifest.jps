@@ -162,7 +162,7 @@ onInstall:
                   tooltip:
                     y: -1
                     text: |
-                      Interconnected private networks for authorized access within the <a href="https://docs.jelastic.com/environment-isolation/">isolated environment group</a> or <a href="https://docs.jelastic.com/environment-regions">region</a> where OpenVPN is installed. The DNS queries are resolved by internal platform DNS servers that makes environment and container hostnames associated with their private IP addresses.
+                      Interconnected private networks for authorized access within the <a href="https://www.virtuozzo.com/application-platform-docs/environment-isolation/">isolated environment group</a> or <a href="https://www.virtuozzo.com/application-platform-docs/choosing-region/">region</a> where OpenVPN is installed. The DNS queries are resolved by internal platform DNS servers that makes environment and container hostnames associated with their private IP addresses.
 
         buttons:
           - caption: Client UI
